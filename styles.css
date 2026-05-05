@@ -141,8 +141,21 @@ body {
     height: 250px;
     display: block;
 }
+.stats{
+    position: relative;
+}
 .stats img {
     height: 100%;
+}
+.stats-value{
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    gap: 35px;
+    color: #111;
+    left: 50%;
+    top: 30%;
+    font-size: large;
 }
 .btn-wrap {
     display: flex;

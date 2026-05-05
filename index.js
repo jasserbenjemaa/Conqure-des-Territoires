@@ -10,6 +10,16 @@ const crossBtnBlue = document.getElementById("cross-btn-blue");
 const crossBtnRed = document.getElementById("cross-btn-red");
 const playBtnDiv = document.querySelector(".play-btn-div");
 
+//change the units stats
+function updateUnitStats(unit, atk, def) {
+    document.querySelectorAll(`.${unit}-atk-stats`).forEach(el => el.textContent = `${atk} ATK`);
+    document.querySelectorAll(`.${unit}-def-stats`).forEach(el => el.textContent = `${def} DEF`);
+}
+
+// Read directly from the classes — no hardcoding
+const units = [new Soldat(), new Cavalier(), new Tank()];
+units.forEach(u => updateUnitStats(u.type, u.atk, u.def));
+
 /* ── Panel animations ── */
 function showImgs(imgs) {
   imgs.forEach((img, i) => {
