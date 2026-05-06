@@ -51,6 +51,93 @@ let combatQueue = [];
 let combatIdx = 0;
 
 /* ─────────────────────────────────────────
+   AI MODE
+───────────────────────────────────────── */
+let vsAI      = false;   // true when playing against the AI
+let aiThinking = false;  // prevents re-entrant AI calls
+
+/**
+ * Auto-place 5 units for the AI (player 2) in its deploy rows.
+ * Called once, right after the human confirms his own placement.
+ */
+function autoPlaceAI() {
+  // Temporarily switch to PLACE_2 so tryPlace() targets player 2
+  game.state = "PLACE_2";
+
+  const typesList  = ["cavalier", "tank", "soldat", "soldat", "soldat"];
+  const deployRows = game.player(2).deployRows();
+  let placed = 0;
+
+  outer:
+  for (const r of deployRows) {
+    for (let c = 0; c < 8; c++) {
+      if (placed >= 5) break outer;
+      const sq = game.board.sq(r, c);
+      if (sq.units.length > 0) continue; // cell already occupied
+      game.chosenType = typesList[placed];
+      if (game.tryPlace(r, c)) placed++;
+    }
+  }
+}
+
+/**
+ * Called after every renderAll() when vsAI is active.
+ * Triggers the AI's turn if the current state is BATTLE_2.
+ */
+function maybeRunAI() {
+  if (!vsAI || aiThinking || game.state !== "BATTLE_2") return;
+
+  aiThinking = true;
+
+  // Small delay so the board visually updates before AI "thinks"
+  setTimeout(() => {
+    const aiUnits = game.player(2).units;
+    const plans   = getBestMove(aiUnits); // from hard.js
+
+    if (!plans || plans.length === 0) {
+      // AI has no moves — end its turn (fallback)
+      aiThinking = false;
+      if (typeof game.endTurn === "function") {
+        game.endTurn();
+        renderAll();
+      }
+      return;
+    }
+
+    const plan = plans[0]; // getBestMove returns an array with one best plan
+
+    // Visually select the AI unit so the player can follow the move
+    game.selectUnit(plan.unit);
+    renderAll();
+
+    setTimeout(() => {
+      const result = game.tryMove(plan.dest.r, plan.dest.c);
+      aiThinking = false;
+
+      if (!result) {
+        // Move was rejected — clear selection and let turn pass
+        game.clearSel();
+        renderAll();
+        return;
+      }
+
+      if (result.kind === "combat") {
+        // Reuse the exact same combat overlay the human player sees
+        launchCombat(
+          result.attacker,
+          result.sq,
+          result.toR,
+          result.toC,
+          result.ranged || false,
+        );
+      } else {
+        renderAll();
+      }
+    }, 600); // brief pause so the selection is visible
+  }, 500);
+}
+
+/* ─────────────────────────────────────────
    RENDER
 ───────────────────────────────────────── */
 function renderBoard() {
@@ -142,13 +229,20 @@ function renderBoard() {
 
 function renderAll() {
   renderBoard();
+  renderTerritoryStats();
+
+  // ← AI hook: fire after every board refresh
+  maybeRunAI();
 }
 
 /* ─────────────────────────────────────────
    INPUT HANDLERS
+   (blocked while it is the AI's turn)
 ───────────────────────────────────────── */
 function onCellClick(r, c) {
+  // Block human input when AI is thinking or when it is AI's turn
   if (game.state === "OVER" || combatQueue.length > 0) return;
+  if (vsAI && game.state === "BATTLE_2") return; // AI's turn — ignore clicks
 
   if (game.isPlacing()) {
     if (game.tryPlace(r, c)) renderAll();
@@ -177,6 +271,7 @@ function onCellClick(r, c) {
 
 function onUnitClick(unit) {
   if (game.state === "OVER" || combatQueue.length || !game.isBattling()) return;
+  if (vsAI && game.state === "BATTLE_2") return; // AI's turn — ignore clicks
   if (unit.player === game.currentPlayerId()) {
     if (game.selectedUnit && game.selectedUnit.id === unit.id) game.clearSel();
     else game.selectUnit(unit);
@@ -199,8 +294,9 @@ document.querySelectorAll(".unit-type-btn").forEach((btn) => {
    UI FLOW — one-time event listeners
 ───────────────────────────────────────── */
 
-/* Play button → start placement for Player 1 (blue) */
+/* Play button → 2-player mode: Player 1 placement */
 playBtn.addEventListener("click", () => {
+  vsAI = false;
   banner.classList.remove("visible");
   playBtnDiv.classList.add("hidden");
   moveBoardRight();
@@ -209,26 +305,44 @@ playBtn.addEventListener("click", () => {
   renderAll();
 });
 
+/* AI Play button → vs-AI mode: Player 1 placement only */
 aiPlayBtn.addEventListener("click", () => {
+  vsAI = true;
   banner.classList.remove("visible");
   playBtnDiv.classList.add("hidden");
-
-  alert("mazalt partie hathi ya elaa!");
-  // code ai
+  moveBoardRight();
+  setTimeout(() => showImgs(imgsBlue), 1000);
+  game.state = "PLACE_1";
+  renderAll();
 });
 
-/* Blue check → advance to Player 2 (red) placement */
+/* Blue check → in 2-player mode advance to P2 placement;
+                in AI mode auto-place P2 and start battle */
 checkBtnBlue.addEventListener("click", () => {
   if (game.state !== "PLACE_1") return;
   if (!game.hasPlaced5(1)) {
     alert("Le Joueur 1 doit placer exactement 5 unités avant de continuer !");
     return;
   }
+
   hideImgs(imgsBlue);
-  setTimeout(() => moveBoardLeft(), 1000);
-  setTimeout(() => showImgs(imgsRed), 2000);
-  game.state = "PLACE_2";
-  renderAll();
+
+  if (vsAI) {
+    // Auto-place AI units, then go straight to battle
+    setTimeout(() => {
+      autoPlaceAI();
+      moveBoardCenter();
+      game.state = "BATTLE_1";
+      game.spawnPowerups(5);
+      renderAll();
+    }, 1000);
+  } else {
+    // Normal 2-player flow
+    setTimeout(() => moveBoardLeft(), 1000);
+    setTimeout(() => showImgs(imgsRed), 2000);
+    game.state = "PLACE_2";
+    renderAll();
+  }
 });
 
 /* Blue cross → reset Player 1's units */
@@ -238,7 +352,7 @@ crossBtnBlue.addEventListener("click", () => {
   renderAll();
 });
 
-/* Red check → start battle */
+/* Red check → start battle (2-player only; hidden in AI mode) */
 checkBtnRed.addEventListener("click", () => {
   if (game.state !== "PLACE_2") return;
   if (!game.hasPlaced5(2)) {
@@ -254,7 +368,7 @@ checkBtnRed.addEventListener("click", () => {
   }, 1000);
 });
 
-/* Red cross → reset Player 2's units */
+/* Red cross → reset Player 2's units (2-player only) */
 crossBtnRed.addEventListener("click", () => {
   if (game.state !== "PLACE_2") return;
   game.resetPlacement(2);
@@ -325,10 +439,10 @@ function showCombat() {
   face2.className = `dice-face p${res.defender.player}`;
 
   document.getElementById("dice-p1-label").textContent = `${
-    res.attacker.player === 1 ? "Joueur 1" : "Joueur 2"
+    res.attacker.player === 1 ? "Joueur 1" : "IA"
   } — ${res.attacker.getName()}`;
   document.getElementById("dice-p2-label").textContent = `${
-    res.defender.player === 1 ? "Joueur 1" : "Joueur 2"
+    res.defender.player === 1 ? "Joueur 1" : "IA"
   } — ${res.defender.getName()}`;
 
   info.textContent = res.ranged
@@ -426,7 +540,7 @@ function advanceCombat() {
     game.applyResults(attacker, sq, toR, toC, combatQueue, ranged || false);
     combatQueue = [];
     combatIdx = 0;
-    renderAll();
+    renderAll(); // ← maybeRunAI() is called here if it's now BATTLE_2
   }
 }
 
@@ -451,6 +565,8 @@ function closeWinOverlay() {
    RESTART
 ───────────────────────────────────────── */
 function doRestart() {
+  vsAI       = false;
+  aiThinking = false;
   game.reset();
   combatQueue = [];
   combatIdx = 0;
@@ -502,10 +618,6 @@ function renderTerritoryStats() {
   document.getElementById("territory-red").classList.toggle("visible", visible);
 }
 
-function renderAll() {
-  renderBoard();
-  renderTerritoryStats();
-}
 /* ─────────────────────────────────────────
    BOOT
 ───────────────────────────────────────── */
