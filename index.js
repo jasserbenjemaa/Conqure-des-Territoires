@@ -9,6 +9,7 @@ const checkBtnRed  = document.getElementById("check-btn-red");
 const crossBtnBlue = document.getElementById("cross-btn-blue");
 const crossBtnRed  = document.getElementById("cross-btn-red");
 const playBtnDiv   = document.querySelector(".play-btn-div");
+const aiPlayBtn    = document.getElementById("aiPlayBtn");
 
 /* ── Unit stats ── */
 function updateUnitStats(unit, atk, def) {
@@ -41,51 +42,10 @@ let combatQueue = [];
 let combatIdx   = 0;
 
 /* ── AI ── */
-let vsAI      = false;
+// autoPlaceAI() and maybeRunAI() are defined in manager.js.
+// This file only owns the runtime flags that both functions read.
+let vsAI       = false;
 let aiThinking = false;
-
-function autoPlaceAI() {
-  game.state = "PLACE_2";
-  const typesList  = ["cavalier", "tank", "soldat", "soldat", "soldat"];
-  const deployRows = game.player(2).deployRows();
-  let placed = 0;
-  outer:
-  for (const r of deployRows) {
-    for (let c = 0; c < 8; c++) {
-      if (placed >= 5) break outer;
-      const sq = game.board.sq(r, c);
-      if (sq.units.length > 0) continue;
-      game.chosenType = typesList[placed];
-      if (game.tryPlace(r, c)) placed++;
-    }
-  }
-}
-
-function maybeRunAI() {
-  if (!vsAI || aiThinking || game.state !== "BATTLE_2") return;
-  aiThinking = true;
-  setTimeout(() => {
-    const plans = getBestMove(game.player(2).units);
-    if (!plans || plans.length === 0) {
-      aiThinking = false;
-      if (typeof game.endTurn === "function") { game.endTurn(); renderAll(); }
-      return;
-    }
-    const plan = plans[0];
-    game.selectUnit(plan.unit);
-    renderAll();
-    setTimeout(() => {
-      const result = game.tryMove(plan.dest.r, plan.dest.c);
-      aiThinking = false;
-      if (!result) { game.clearSel(); renderAll(); return; }
-      if (result.kind === "combat") {
-        launchCombat(result.attacker, result.sq, result.toR, result.toC, result.ranged || false);
-      } else {
-        renderAll();
-      }
-    }, 600);
-  }, 500);
-}
 
 /* ── Render ── */
 function renderBoard() {

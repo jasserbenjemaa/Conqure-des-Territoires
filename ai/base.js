@@ -1,106 +1,196 @@
-/**
-UTILITAIRES COMMUNS POUR L'IA — VERSION SOUTENANCE
-@module ai/base
-*/
-import { GRID_SIZE, MAX_UNITS_PER_CELL, UNIT_TYPES } from '../config.js';
-import { game } from '../state.js';
-import { getCell } from '../core/grid.js';
-import { getReachableCells } from '../core/pathfinder.js';
 
-/**
-Récupère toutes les cases atteignables pour une unité
-✅ Tank : portée infinie sur toute la grille
-*/
-export function getAllReachableForUnit(unit) {
-  if (!unit || !unit.pos || typeof unit.pos.x !== 'number') return [];
-  const results = [];
+var AI_GRID_SIZE = 8;
 
-  // 🚜 TANK : peut attaquer N'IMPORTE QUEL ennemi sur la grille
-  if (unit.type === 'TANK') {
-    for (let y = 0; y < GRID_SIZE; y++) {
-      for (let x = 0; x < GRID_SIZE; x++) {
-        const cell = getCell(x, y);
-        if (cell?.units?.some(uid => game.units.get(uid)?.owner !== unit.owner)) {
-          results.push({ x, y, path: [], isAttack: true });
-        }
-      }
+// Unit type metadata — extend if you add more unit types
+var AI_UNIT_TYPES = {
+  tank:     { val: 3, force: 3 },
+  cavalier: { val: 2, force: 2 },
+  soldat:   { val: 1, force: 1 }
+};
+
+var AI_PLAYER = { P1: 1, P2: 2 };
+
+/* ─────────────────────────────────────────────
+   REACHABLE-CELLS  (replaces pathfinder import)
+   Uses game.validMoves after game.selectUnit()
+   to discover reachable cells for a given unit.
+───────────────────────────────────────────── */
+/**
+ * Returns an array of { r, c, isAttack } objects for every cell
+ * the unit can reach (move to OR attack).
+ *
+ * Strategy:
+ *   • Temporarily select the unit via game.selectUnit() to populate
+ *     game.validMoves and game.validRangedAttacks, then restore state.
+ *   • Tank ranged attacks (game.validRangedAttacks) are flagged isAttack=true.
+ */
+function getAllReachableForUnit(unit) {
+  if (!unit || typeof unit.row !== 'number') return [];
+
+  // Save current selection so we can restore it
+  var prevSelected  = game.selectedUnit;
+  var prevMoves     = game.validMoves.slice();
+  var prevRanged    = (game.validRangedAttacks || []).slice();
+
+  game.selectUnit(unit);
+
+  var results = [];
+
+  // Normal moves / melee attacks
+  (game.validMoves || []).forEach(function(pair) {
+    var r = pair[0], c = pair[1];
+    var sq = game.board.sq(r, c);
+    results.push({ r: r, c: c, isAttack: sq.hasEnemy(unit.player) });
+  });
+
+  // Ranged attacks (tank)
+  (game.validRangedAttacks || []).forEach(function(pair) {
+    var r = pair[0], c = pair[1];
+    // Avoid duplicates added by validMoves
+    var already = results.some(function(x) { return x.r === r && x.c === c; });
+    if (!already) results.push({ r: r, c: c, isAttack: true, ranged: true });
+    else {
+      // Mark existing entry as ranged too
+      results.forEach(function(x) {
+        if (x.r === r && x.c === c) x.ranged = true;
+      });
     }
-    return results;
-  }
+  });
 
-  // 🚶 Unités normales : pathfinder classique
-  const reachable = getReachableCells(unit.id) ?? [];
-  for (const target of reachable) {
-    if (target.x < 0 || target.x >= GRID_SIZE || target.y < 0 || target.y >= GRID_SIZE) continue;
-    const cell = getCell(target.x, target.y);
-    if (!cell || cell.type === 'TRAP') continue;
-    const hasOwn = cell.units?.some(uid => game.units.get(uid)?.owner === unit.owner);
-    const hasEnemy = cell.units?.some(uid => game.units.get(uid)?.owner !== unit.owner);
-    if (hasOwn && !hasEnemy && (cell.units?.length ?? 0) >= MAX_UNITS_PER_CELL) continue;
-    results.push({ x: target.x, y: target.y, path: target.path ?? [], isAttack: target.isAttack ?? false });
-  }
+  // Restore previous selection state
+  if (prevSelected) game.selectUnit(prevSelected);
+  else game.clearSel();
+  game.validMoves          = prevMoves;
+  game.validRangedAttacks  = prevRanged;
+
   return results;
 }
 
-export function getAvailableUnits(player) {
-  if (!player || !game?.units) return [];
-  return [...game.units.values()]
-    .filter(u => u?.owner === player && !u?.hasMoved && u?.pos)
-    .sort((a, b) => (UNIT_TYPES[b.type]?.val ?? 0) - (UNIT_TYPES[a.type]?.val ?? 0));
+/**
+ * All AI (player 2) units that have not yet moved this turn.
+ * Sorted by descending unit value so high-value pieces are tried first.
+ */
+function getAvailableUnits(playerNum) {
+  var units = game.player(playerNum).units || [];
+  return units
+    .filter(function(u) { return u && !u.hasMoved; })
+    .sort(function(a, b) {
+      return (AI_UNIT_TYPES[b.type] ? AI_UNIT_TYPES[b.type].val : 1)
+           - (AI_UNIT_TYPES[a.type] ? AI_UNIT_TYPES[a.type].val : 1);
+    });
 }
 
-export function cloneGameState() {
-  if (!game?.grid || !game?.units) return null;
-  return {
-    grid: game.grid.map(row => row?.map(c => c ? {
-      owner: c.owner, type: c.type, units: [...(c.units ?? [])]
-    } : null) ?? []),
-    units: new Map([...game.units.entries()].map(([k, v]) => v ? [k, {
-      ...v, pos: v.pos ? { ...v.pos } : null
-    }] : [k, null])),
-    scores: { ...game.scores }, phase: game.phase, turn: game.turn
-  };
+/* ─────────────────────────────────────────────
+   GAME-STATE CLONE / RESTORE
+   Snapshots the board grid + unit positions so
+   the AI can simulate moves and roll back.
+───────────────────────────────────────────── */
+function cloneGameState() {
+  var gridSnap = [];
+  for (var r = 0; r < AI_GRID_SIZE; r++) {
+    gridSnap[r] = [];
+    for (var c = 0; c < AI_GRID_SIZE; c++) {
+      var sq = game.board.sq(r, c);
+      gridSnap[r][c] = sq.units.map(function(u) { return u.id; });
+    }
+  }
+
+  // Clone every unit's mutable position fields
+  var unitsSnap = {};
+  [1, 2].forEach(function(pid) {
+    (game.player(pid).units || []).forEach(function(u) {
+      unitsSnap[u.id] = { row: u.row, col: u.col, hasMoved: u.hasMoved, alive: true };
+    });
+  });
+
+  // FIX (bug 1): Also snapshot the player unit arrays.
+  // _applyMove removes killed units from game.player(pid).units, so
+  // getAllUnitsFlat() called inside restoreGameState() would miss them,
+  // leaving killed units permanently absent after the first simulated attack.
+  var playerUnitsSnap = {};
+  [1, 2].forEach(function(pid) {
+    playerUnitsSnap[pid] = (game.player(pid).units || []).slice();
+  });
+
+  return { grid: gridSnap, units: unitsSnap, playerUnits: playerUnitsSnap };
 }
 
-export function restoreGameState(snapshot) {
-  if (!snapshot?.grid) return false;
+function restoreGameState(snapshot) {
+  if (!snapshot) return false;
   try {
-    game.grid = snapshot.grid.map(row => row?.map(c => c ? {
-      ...c, units: [...c.units]
-    } : null) ?? []);
-    game.units = new Map([...snapshot.units.entries()].map(([k, v]) => v ? [k, {
-      ...v, pos: v.pos ? { ...v.pos } : null
-    }] : [k, null]));
-    game.scores = { ...snapshot.scores };
-    game.phase = snapshot.phase;
-    game.turn = snapshot.turn;
+    // Restore board grid unit-lists
+    for (var r = 0; r < AI_GRID_SIZE; r++) {
+      for (var c = 0; c < AI_GRID_SIZE; c++) {
+        game.board.grid[r][c].units = [];
+      }
+    }
+
+    // FIX (bug 1): Restore player unit arrays BEFORE iterating them.
+    // Without this, any unit removed from game.player(pid).units by
+    // _applyMove is invisible to getAllUnitsFlat() and never re-placed.
+    if (snapshot.playerUnits) {
+      [1, 2].forEach(function(pid) {
+        game.player(pid).units = snapshot.playerUnits[pid].slice();
+      });
+    }
+
+    // Re-place every unit that was alive in the snapshot
+    var allUnits = getAllUnitsFlat();
+    allUnits.forEach(function(u) {
+      var snap = snapshot.units[u.id];
+      if (!snap) return; // unit was dead at snapshot time — skip
+      u.row      = snap.row;
+      u.col      = snap.col;
+      u.hasMoved = snap.hasMoved;
+      game.board.grid[u.row][u.col].units.push(u);
+    });
+
     return true;
-  } catch (e) { return false; }
+  } catch (e) {
+    return false;
+  }
 }
 
-export function calculateWinProbability(attForce, defForce, defBonus = 0) {
-  if (typeof attForce !== 'number' || typeof defForce !== 'number') return 0.5;
-  let wins = 0;
-  for (let a = 1; a <= 6; a++) {
-    for (let d = 1; d <= 6; d++) {
-      if ((a + attForce) > (d + defForce + defBonus)) wins++;
+/** Helper: flat array of all living units from both players */
+function getAllUnitsFlat() {
+  var result = [];
+  [1, 2].forEach(function(pid) {
+    (game.player(pid).units || []).forEach(function(u) { result.push(u); });
+  });
+  return result;
+}
+
+/* ─────────────────────────────────────────────
+   WIN-PROBABILITY  (dice model: d6 + stat)
+───────────────────────────────────────────── */
+/**
+ * Returns probability that attacker beats defender in one dice roll.
+ * Both add a d6; attacker also adds atk, defender adds def.
+ * @param {number} atk  - attacker's ATK value
+ * @param {number} def  - defender's DEF value
+ */
+function calculateWinProbability(atk, def) {
+  var wins = 0;
+  for (var a = 1; a <= 6; a++) {
+    for (var d = 1; d <= 6; d++) {
+      if ((a + atk) > (d + def)) wins++;
     }
   }
   return wins / 36;
 }
 
-/**
-Hash d'état COMPLET pour table de transposition
-✅ Inclut : positions, types, hasMoved, defending
-*/
-export function hashGameState(state) {
-  if (!state?.grid) return 'invalid';
-  const boardHash = state.grid
-    .map(row => row?.map(c => `${c?.owner ?? ''}${c?.type ?? ''}`).join('|'))
-    .join('#');
-  const unitHash = [...(state.units?.values?.() ?? [])]
-    .map(u => `${u?.id ?? ''}:${u?.pos?.x ?? ''}:${u?.pos?.y ?? ''}:${u?.owner ?? ''}:${u?.hasMoved ? 1 : 0}:${u?.defending ? 1 : 0}`)
-    .sort()
-    .join(',');
-  return `${boardHash}::${unitHash}`;
+/* ─────────────────────────────────────────────
+   STATE HASH  (transposition table key)
+───────────────────────────────────────────── */
+function hashGameState() {
+  var parts = [];
+  for (var r = 0; r < AI_GRID_SIZE; r++) {
+    for (var c = 0; c < AI_GRID_SIZE; c++) {
+      var sq = game.board.sq(r, c);
+      sq.units.forEach(function(u) {
+        parts.push(u.id + ':' + u.player + ':' + r + ':' + c + ':' + (u.hasMoved ? 1 : 0));
+      });
+    }
+  }
+  return parts.join('|');
 }
