@@ -1,11 +1,3 @@
-/**
- * IA NIVEAU 3 — MINIMAX AVEC ÉLAGAGE α-β + OPTIMISATIONS
- * Comportement: stratégique, calcul profond, déterministe
- *
- * Adapté pour Board.js / Game.js :
- *   - les imports remplacés par des méthodes privées inline
- *   - la structure, les noms et l'algorithme sont intacts
- */
 
 // Configuration du niveau Hard
 const CONFIG = {
