@@ -322,11 +322,13 @@ function showCombat() {
   const stat1 = el("dice-stat-1"), stat2 = el("dice-stat-2");
   const tot1  = el("dice-total-1"), tot2 = el("dice-total-2");
 
+  // Always colour each die by the player's actual colour (p1=blue, p2=red)
   face1.className = `dice-face p${res.attacker.player}`;
   face2.className = `dice-face p${res.defender.player}`;
 
-  el("dice-p1-label").textContent = `${res.attacker.player === 1 ? "Joueur 1" : "IA"} — ${res.attacker.getName()}`;
-  el("dice-p2-label").textContent = `${res.defender.player === 1 ? "Joueur 1" : "IA"} — ${res.defender.getName()}`;
+  const playerLabel = pid => pid === 1 ? "Joueur 1" : vsAI ? "IA" : "Joueur 2";
+  el("dice-p1-label").textContent = `${playerLabel(res.attacker.player)} — ${res.attacker.getName()}`;
+  el("dice-p2-label").textContent = `${playerLabel(res.defender.player)} — ${res.defender.getName()}`;
 
   info.textContent = res.ranged
     ? `${res.attacker.getName()} attaque à distance ${res.defender.getName()}${res.distPenalty ? ` (−${res.distPenalty} ATQ dist)` : ""}`

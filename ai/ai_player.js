@@ -24,11 +24,7 @@ class MinimaxEngine {
     this.bestMoveFound      = null;
   }
 
-  /**
-   * Point d'entrée principal: décide du meilleur mouvement
-   * @param {Array} units - Unités IA disponibles
-   * @returns {Object|null} Meilleur mouvement ou null
-   */
+
   decide(units) {
     if (!Array.isArray(units) || units.length === 0) return null;
 
@@ -63,10 +59,7 @@ class MinimaxEngine {
     return bestPlan;
   }
 
-  /**
-   * Minimax avec élagage α-β
-   * @private
-   */
+
   _alphaBeta(depth, alpha, beta, isMaximizing, currentPlayer) {
     // ⏱️ Time cutoff
     if (performance.now() - this.startTime > CONFIG.TIME_LIMIT_MS) {
@@ -144,10 +137,6 @@ class MinimaxEngine {
     return { score: value, move: bestMove };
   }
 
-  /**
-   * Génère et trie les coups candidats (Move Ordering)
-   * @private
-   */
   _generateCandidates(units, player, isMaximizing) {
     const candidates = [];
 
@@ -182,10 +171,7 @@ class MinimaxEngine {
     );
   }
 
-  /**
-   * Score rapide pour tri des coups (pas une évaluation complète)
-   * @private
-   */
+
   _quickScore(unit, dest, cell, player) {
     let score = 0;
 
@@ -206,17 +192,14 @@ class MinimaxEngine {
     const key = `${dest.r},${dest.c}`;
     if (game.powerups.has(key)) {
       const pu = game.powerups.get(key);
-      if (pu.type === 'boost') score += 3;
-      else                     score -= 8; // curse = TRAP équivalent
+      if (pu.type === 'boost') score += 8;
+      else                     score -= 3; // curse = TRAP équivalent
     }
 
     return score;
   }
 
-  /**
-   * Fonction d'évaluation heuristique (déterministe)
-   * @private
-   */
+
   _evaluate(player) {
     // ♻️ Cache évaluation
     if (CONFIG.EVALUATION_CACHE) {
@@ -235,10 +218,7 @@ class MinimaxEngine {
     return score;
   }
 
-  /**
-   * Remplace evaluatePosition() de heuristics.js
-   * @private
-   */
+
   _evaluatePosition(player) {
     const enemy = player === this.pid ? this.enemy : this.pid;
     let score   = 0;
@@ -264,10 +244,7 @@ class MinimaxEngine {
     return score;
   }
 
-  /**
-   * Vérifie conditions de victoire/défaite
-   * @private
-   */
+
   _isTerminal() {
     const counts = game.getCellCounts();
     if (counts[1] > 32 || counts[2] > 32) return true;
@@ -275,11 +252,7 @@ class MinimaxEngine {
     return false;
   }
 
-  /**
-   * Applique un plan sur l'état courant (pour simulation)
-   * Remplace la version originale qui utilisait getCell() et game.units (Map)
-   * @private
-   */
+
   _applyPlan(unit, dest) {
     const oldSq = game.board.sq(unit.row, unit.col);
     const newSq = game.board.sq(dest.r, dest.c);
@@ -390,11 +363,6 @@ class MinimaxEngine {
 // Instance singleton
 const minimax = new MinimaxEngine(2);
 
-/**
- * Point d'entrée public pour l'IA Hard
- * @param {Array} units - Unités disponibles
- * @returns {Array} Mouvement unique dans un tableau (compatibilité API)
- */
 function getBestMove(units) {
   const best = minimax.decide(units);
   return best ? [best] : [];

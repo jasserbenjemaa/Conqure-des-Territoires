@@ -146,6 +146,14 @@ class Game {
     if (m.turns <= 0) this.unitMods.delete(unitId);
   }
 
+  /* Decrement every on-board power-up's timer and remove expired ones */
+  _tickPowerups() {
+    for (const [key, pu] of this.powerups) {
+      pu.timeLeft--;
+      if (pu.timeLeft <= 0) this.powerups.delete(key);
+    }
+  }
+
   getMod(unitId) {
     if (!this.unitMods.has(unitId)) return { atkMod: 0, defMod: 0 };
     return this.unitMods.get(unitId);
@@ -311,6 +319,7 @@ class Game {
   }
 
   _nextTurn() {
+    this._tickPowerups();
     if (this.state === "BATTLE_1") this.state = "BATTLE_2";
     else if (this.state === "BATTLE_2") this.state = "BATTLE_1";
   }
