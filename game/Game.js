@@ -280,8 +280,10 @@ class Game {
       if (res.atkWins) {
         sq.removeUnit(res.defender.id);
         this.player(res.defender.player).killUnit(res.defender.id);
+        this.unitMods.delete(res.defender.id); // clean up dead defender's mod
       } else {
         allDead = false;
+        this.tickMod(res.defender.id); // tick surviving defender's mod
       }
     }
     if (allDead) {

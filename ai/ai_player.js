@@ -1,4 +1,3 @@
-
 // Configuration du niveau Hard
 const CONFIG = {
   MAX_DEPTH: 10,
@@ -41,13 +40,15 @@ class MinimaxEngine {
     // 🔄 Iterative Deepening avec cutoff temporel
     while (depth <= CONFIG.MAX_DEPTH) {
       const timeElapsed = performance.now() - this.startTime;
-      if (timeElapsed > CONFIG.TIME_LIMIT_MS ) break;
+      if (timeElapsed > CONFIG.TIME_LIMIT_MS) break;
 
       const result = this._alphaBeta(depth, -Infinity, Infinity, true, this.pid);
 
-      if (result.score > bestScore && result.move) {
-        bestScore = result.score;
+      // Always trust the deepest completed iteration — cross-depth scores
+      // are not comparable so we never let a shallower result override a deeper one.
+      if (result.move) {
         bestPlan  = result.move;
+        bestScore = result.score;
         this.bestMoveFound = bestPlan;
       }
 
@@ -60,14 +61,14 @@ class MinimaxEngine {
 
 
   _alphaBeta(depth, alpha, beta, isMaximizing, currentPlayer) {
-    // ⏱️ Time cutoff
+    // ⏱️ Time cutoff — always score from AI's fixed perspective
     if (performance.now() - this.startTime > CONFIG.TIME_LIMIT_MS) {
-      return { score: this._evaluate(currentPlayer), move: this.bestMoveFound };
+      return { score: this._evaluate(this.pid), move: this.bestMoveFound };
     }
 
-    // 🎯 Terminal ou profondeur max
+    // 🎯 Terminal ou profondeur max — same fixed perspective
     if (depth === 0 || this._isTerminal()) {
-      return { score: this._evaluate(currentPlayer), move: null };
+      return { score: this._evaluate(this.pid), move: null };
     }
 
     // ♻️ Table de transposition
@@ -81,7 +82,7 @@ class MinimaxEngine {
 
     const availableUnits = game.player(currentPlayer).units;
     if (!availableUnits?.length) {
-      return { score: this._evaluate(currentPlayer), move: null };
+      return { score: this._evaluate(this.pid), move: null };
     }
 
     // 🎯 Génération et TRI des coups (Move Ordering)
@@ -89,7 +90,7 @@ class MinimaxEngine {
     const limitedCandidates = candidates.slice(0, CONFIG.BRANCH_LIMIT);
 
     if (limitedCandidates.length === 0) {
-      return { score: this._evaluate(currentPlayer), move: null };
+      return { score: this._evaluate(this.pid), move: null };
     }
 
     let bestMove = null;
@@ -99,7 +100,6 @@ class MinimaxEngine {
       const snapshot = this._cloneGameState();
       if (!snapshot) continue;
 
-      // Applique le coup
       const applied = this._applyPlan(plan.unit, plan.dest);
       if (!applied) {
         this._restoreGameState(snapshot);
@@ -140,22 +140,19 @@ class MinimaxEngine {
     const candidates = [];
 
     for (const unit of units) {
-      // getAllReachableForUnit → getValidMoves() + getRangedAttacks()
       const moves  = unit.getValidMoves();
       const ranged = unit.getRangedAttacks ? unit.getRangedAttacks(game.board) : [];
 
       const allDests = [
         ...moves .map(([r, c]) => ({ r, c, isAttack: game.board.sq(r, c).hasEnemy(unit.player), isRanged: false })),
         ...ranged.map(([r, c]) => ({ r, c, isAttack: true,                                       isRanged: true  })),
-      ].slice(0, 8); // limite comme dans l'original
+      ].slice(0, 8);
 
       for (const dest of allDests) {
         const cell = game.board.sq(dest.r, dest.c);
 
-        // Score rapide pour tri
         let score = this._quickScore(unit, dest, cell, player, isMaximizing);
 
-        // Bonus move ordering: attaques et captures en premier
         if (dest.isAttack) score *= CONFIG.MOVE_ORDERING_BONUS;
         const cellOwner = game.cellOwnership.get(`${dest.r},${dest.c}`);
         if (!cellOwner || cellOwner !== player) score *= CONFIG.MOVE_ORDERING_BONUS;
@@ -164,7 +161,6 @@ class MinimaxEngine {
       }
     }
 
-    // Tri pour Move Ordering
     return candidates.sort((a, b) =>
       isMaximizing ? b.score - a.score : a.score - b.score
     );
@@ -178,7 +174,6 @@ class MinimaxEngine {
       const aMod = game.getMod(unit.id).atkMod;
       for (const def of cell.enemiesOf(unit.player)) {
         const dMod = game.getMod(def.id).defMod;
-        // calculateWinProbability → _winProbability
         const prob = this._winProbability(unit.atk + aMod, def.def + dMod);
         score += prob > 0.5 ? 10 : -5;
       }
@@ -187,12 +182,11 @@ class MinimaxEngine {
     const cellOwner = game.cellOwnership.get(`${dest.r},${dest.c}`);
     if (!cellOwner || cellOwner !== player) score += 5;
 
-    // Power-up awareness (remplace BONUS_ATK / BONUS_DEF / TRAP)
     const key = `${dest.r},${dest.c}`;
     if (game.powerups.has(key)) {
       const pu = game.powerups.get(key);
       if (pu.type === 'boost') score += 8;
-      else                     score -= 3; // curse = TRAP équivalent
+      else                     score -= 3;
     }
 
     return score;
@@ -200,13 +194,11 @@ class MinimaxEngine {
 
 
   _evaluate(player) {
-    // ♻️ Cache évaluation
     if (CONFIG.EVALUATION_CACHE) {
       const evalHash = `${player}:${this._hashGameState()}`;
       if (this.evalCache.has(evalHash)) return this.evalCache.get(evalHash);
     }
 
-    // evaluatePosition → _evaluatePosition
     const score = this._evaluatePosition(player);
 
     if (CONFIG.EVALUATION_CACHE && this.evalCache.size < 5000) {
@@ -222,20 +214,16 @@ class MinimaxEngine {
     const enemy = player === this.pid ? this.enemy : this.pid;
     let score   = 0;
 
-    // Territoire
     const counts = game.getCellCounts();
     score += (counts[player] - counts[enemy]) * 3;
 
-    // Nombre d'unités
     const myUnits = game.player(player).units;
     const enUnits = game.player(enemy).units;
     score += (myUnits.length - enUnits.length) * 20;
 
-    // Force de combat
     for (const u of myUnits) score += u.atk + u.def;
     for (const u of enUnits) score -= u.atk + u.def;
 
-    // Avance vers l'ennemi
     for (const u of myUnits) {
       score += (player === 2 ? u.row : 7 - u.row) * 2;
     }
@@ -247,7 +235,8 @@ class MinimaxEngine {
   _isTerminal() {
     const counts = game.getCellCounts();
     if (counts[1] > 32 || counts[2] > 32) return true;
-    if (game.player(1).unitCount === 0 || game.player(2).unitCount === 0) return true;
+    // Use .units.length — unitCount may be stale during simulation
+    if (game.player(1).units.length === 0 || game.player(2).units.length === 0) return true;
     return false;
   }
 
@@ -260,32 +249,33 @@ class MinimaxEngine {
       const aMod = game.getMod(unit.id).atkMod;
       for (const def of [...newSq.enemiesOf(unit.player)]) {
         const dMod = game.getMod(def.id).defMod;
-        // Résolution déterministe (prob > 0.5 → victoire)
         if (this._winProbability(unit.atk + aMod, def.def + dMod) > 0.5) {
           newSq.removeUnit(def.id);
-          game.player(def.player).killUnit(def.id);
+          // Remove from player's units array directly — avoids side-effects of
+          // killUnit() that we can't snapshot (like animating UI or emitting events)
+          const enemyPlayer = game.player(def.player);
+          enemyPlayer.units = enemyPlayer.units.filter(u => u.id !== def.id);
         }
       }
-      // L'attaquant avance seulement si la case est libérée ET pas ranged
       if (!newSq.hasEnemy(unit.player) && !dest.isRanged) {
         oldSq.removeUnit(unit.id);
         newSq.addUnit(unit);
+        unit.row = dest.r;
+        unit.col = dest.c;
         game.cellOwnership.set(`${dest.r},${dest.c}`, unit.player);
       }
     } else {
       oldSq.removeUnit(unit.id);
       newSq.addUnit(unit);
+      unit.row = dest.r;
+      unit.col = dest.c;
       game.cellOwnership.set(`${dest.r},${dest.c}`, unit.player);
     }
 
     return true;
   }
 
-  /* ──────────────────────────────────────────────────
-     Remplaçants des helpers importés dans l'original
-  ────────────────────────────────────────────────── */
 
-  /** Remplace hashGameState() de base.js */
   _hashGameState() {
     let hash = '';
     for (let r = 0; r < 8; r++) {
@@ -299,51 +289,75 @@ class MinimaxEngine {
     return hash;
   }
 
-  /** Remplace cloneGameState() de base.js */
+
+  /**
+   * Snapshot the game state without cloning unit objects.
+   *
+   * The previous approach used `{ ...u }` which creates plain objects that
+   * lose all prototype methods (getValidMoves, getRangedAttacks, etc.).
+   * As soon as the search restored state and tried to call those methods on
+   * depth > 1, it crashed or silently returned nothing.
+   *
+   * Instead we store:
+   *   - live unit references + their mutable scalar fields (row, col)
+   *   - shallow copies of each player's units array (to restore after kills)
+   *   - shallow copies of each board cell's units array
+   *   - a copy of cellOwnership
+   *
+   * Restoration patches row/col back onto the live objects and swaps the
+   * array references — so every unit retains its prototype chain throughout.
+   */
   _cloneGameState() {
     try {
+      // 1. Board cells — store the current unit-reference arrays
       const boardSnapshot = [];
       for (let r = 0; r < 8; r++)
         for (let c = 0; c < 8; c++)
           boardSnapshot.push({ r, c, units: [...game.board.sq(r, c).units] });
 
-      const unitPositions = [];
+      // 2. Per-unit position snapshot: id → { live ref, row, col }
+      const unitPositions = new Map();
       for (const pl of game.p)
         for (const u of pl.units)
-          unitPositions.push({ id: u.id, pid: pl.id, row: u.row, col: u.col });
+          unitPositions.set(u.id, { unit: u, row: u.row, col: u.col });
 
+      // 3. Player unit lists (live refs — lets us restore killed units)
       return {
         boardSnapshot,
         unitPositions,
-        cellOwnership: new Map(game.cellOwnership),
-        p1Units: [...game.player(1).units],
-        p2Units: [...game.player(2).units],
+        cellOwnership : new Map(game.cellOwnership),
+        p1Units       : [...game.p[0].units],
+        p2Units       : [...game.p[1].units],
       };
     } catch {
       return null;
     }
   }
 
-  /** Remplace restoreGameState() de base.js */
+
+  /**
+   * Restore state by patching live unit objects in-place.
+   * Never replaces unit objects — only mutates their scalar fields.
+   */
   _restoreGameState(snapshot) {
-    // Restaure les tableaux d'unités par cellule
+    // 1. Restore board cell unit arrays
     for (const { r, c, units } of snapshot.boardSnapshot)
       game.board.sq(r, c).units = units;
 
-    // Restaure les positions (row/col) de chaque unité
-    const allSaved = [...snapshot.p1Units, ...snapshot.p2Units];
-    for (const { id, row, col } of snapshot.unitPositions) {
-      const unit = allSaved.find(u => u.id === id);
-      if (unit) { unit.row = row; unit.col = col; }
+    // 2. Restore row/col on the actual live unit objects
+    for (const [, { unit, row, col }] of snapshot.unitPositions) {
+      unit.row = row;
+      unit.col = col;
     }
 
-    // Restaure les listes d'unités des joueurs
+    // 3. Restore player unit lists (brings back any units killed during simulation)
     game.p[0].units = snapshot.p1Units;
     game.p[1].units = snapshot.p2Units;
 
-    // Restaure le territoire
+    // 4. Restore territory
     game.cellOwnership = new Map(snapshot.cellOwnership);
   }
+
 
   _winProbability(atk, def) {
     let wins = 0;
@@ -359,5 +373,14 @@ const minimax = new MinimaxEngine(2);
 
 function getBestMove(units) {
   const best = minimax.decide(units);
-  return best ? [best] : [];
+  if (!best) return [];
+
+  // The search may have swapped game.p[1].units several times during
+  // simulation. Re-resolve the unit by id so we always hand index.js
+  // a reference that actually lives in the current player array —
+  // otherwise game.selectUnit() won't find it.
+  const liveUnit = game.player(2).units.find(u => u.id === best.unit.id);
+  if (!liveUnit) return [];
+
+  return [{ unit: liveUnit, dest: best.dest }];
 }

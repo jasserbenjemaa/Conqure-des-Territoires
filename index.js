@@ -41,7 +41,7 @@ let combatQueue = [];
 let combatIdx   = 0;
 
 /* ── AI ── */
-let vsAI      = false;
+let vsAI       = false;
 let aiThinking = false;
 
 function autoPlaceAI() {
@@ -225,6 +225,121 @@ document.querySelectorAll(".unit-type-btn").forEach(btn => {
   });
 });
 
+/* ── Exit button ── */
+const exitBtn        = document.getElementById("exit-btn");
+const exitModal      = document.getElementById("exit-modal");
+const exitConfirmBtn = document.getElementById("exit-confirm-btn");
+const exitCancelBtn  = document.getElementById("exit-cancel-btn");
+
+function showExitBtn() 
+{ exitBtn.classList.remove("hidden"); 
+  helpBtn.classList.remove("hidden"); 
+}
+function hideExitBtn() 
+{ exitBtn.classList.add("hidden");
+  helpBtn.classList.add("hidden");
+}
+
+exitBtn.addEventListener("click", () => {
+  exitModal.classList.add("show");
+});
+exitCancelBtn.addEventListener("click", () => {
+  exitModal.classList.remove("show");
+});
+exitConfirmBtn.addEventListener("click", () => {
+  exitModal.classList.remove("show");
+  doRestart();
+});
+/* ── Help / Guide modal ── */
+const helpBtn   = document.getElementById("help-btn");
+const helpModal = document.getElementById("help-modal");
+
+helpBtn.addEventListener("click", () => {
+  helpModal.style.display = "flex";
+});
+document.getElementById("help-close-btn").addEventListener("click", () => {
+  helpModal.style.display = "none";
+});
+helpModal.addEventListener("click", e => {
+  if (e.target === helpModal) helpModal.style.display = "none";
+});
+/* ── Initiative dice (qui commence ?) ── */
+const initiativeOverlay  = document.getElementById("initiative-overlay");
+const initFace1          = document.getElementById("init-face-1");
+const initFace2          = document.getElementById("init-face-2");
+const initiativeVerdict  = document.getElementById("initiative-verdict");
+const initiativeRollBtn  = document.getElementById("initiative-roll-btn");
+const initiativeStartBtn = document.getElementById("initiative-start-btn");
+const initiativeSub      = document.getElementById("initiative-sub");
+const initLabel1         = document.getElementById("init-label-1");
+const initLabel2         = document.getElementById("init-label-2");
+
+let initiativeWinner = 1; // joueur qui commencera la bataille
+
+function showInitiativeOverlay(isVsAI) {
+  initLabel1.textContent = "Joueur 1";
+  initLabel2.textContent = isVsAI ? "IA" : "Joueur 2";
+  initFace1.textContent  = "?";
+  initFace2.textContent  = "?";
+  initFace1.className    = "dice-face";
+  initFace2.className    = "dice-face";
+  initiativeVerdict.textContent  = "";
+  initiativeSub.textContent      = "Lancez les dés pour déterminer qui commence !";
+  initiativeRollBtn.style.display  = "inline-block";
+  initiativeStartBtn.style.display = "none";
+  initiativeOverlay.classList.add("show");
+}
+
+initiativeRollBtn.addEventListener("click", () => {
+  initiativeRollBtn.disabled = true;
+
+  // Animation de "rolling" sur les deux dés
+  initFace1.className = "dice-face rolling";
+  initFace2.className = "dice-face rolling";
+  initFace1.textContent = "?";
+  initFace2.textContent = "?";
+
+  setTimeout(() => {
+    let roll1 = d6();
+    let roll2 = d6();
+
+    // Relance automatique en cas d'égalité jusqu'à départage
+    while (roll1 === roll2) {
+      roll1 = d6();
+      roll2 = d6();
+    }
+
+    initFace1.className    = "dice-face rolling p1";
+    initFace2.className    = "dice-face rolling p2";
+    initFace1.textContent  = roll1;
+    initFace2.textContent  = roll2;
+
+    initiativeWinner = roll1 > roll2 ? 1 : 2;
+
+    const name1 = initLabel1.textContent;
+    const name2 = initLabel2.textContent;
+
+    if (roll1 > roll2) {
+      initiativeVerdict.innerHTML = `<span style="color:#3498db">🎲 ${name1} commence ! (${roll1} vs ${roll2})</span>`;
+    } else {
+      initiativeVerdict.innerHTML = `<span style="color:#e74c3c">🎲 ${name2} commence ! (${roll2} vs ${roll1})</span>`;
+    }
+
+    initiativeSub.textContent        = "Le dé le plus élevé remporte l'initiative.";
+    initiativeRollBtn.style.display  = "none";
+    initiativeStartBtn.style.display = "inline-block";
+    initiativeRollBtn.disabled       = false;
+  }, 600);
+});
+
+initiativeStartBtn.addEventListener("click", () => {
+  initiativeOverlay.classList.remove("show");
+  // Démarre la bataille avec le bon joueur
+  game.state = initiativeWinner === 1 ? "BATTLE_1" : "BATTLE_2";
+  game.spawnPowerups(5);
+  renderAll();
+});
+
 /* ── UI flow ── */
 playBtn.addEventListener("click", () => {
   vsAI = false;
@@ -233,6 +348,7 @@ playBtn.addEventListener("click", () => {
   moveBoard(350);
   setTimeout(() => toggleImgs(imgsBlue, true), 1000);
   game.state = "PLACE_1";
+  showExitBtn();
   renderAll();
 });
 
@@ -243,6 +359,7 @@ aiPlayBtn.addEventListener("click", () => {
   moveBoard(350);
   setTimeout(() => toggleImgs(imgsBlue, true), 1000);
   game.state = "PLACE_1";
+  showExitBtn();
   renderAll();
 });
 
@@ -254,9 +371,8 @@ checkBtnBlue.addEventListener("click", () => {
     setTimeout(() => {
       autoPlaceAI();
       moveBoard(0);
-      game.state = "BATTLE_1";
-      game.spawnPowerups(5);
-      renderAll();
+      // Lance le dé d'initiative avant la bataille
+      showInitiativeOverlay(true);
     }, 1000);
   } else {
     setTimeout(() => moveBoard(-350), 1000);
@@ -278,9 +394,8 @@ checkBtnRed.addEventListener("click", () => {
   toggleImgs(imgsRed, false);
   setTimeout(() => {
     moveBoard(0);
-    game.state = "BATTLE_1";
-    game.spawnPowerups(5);
-    renderAll();
+    // Lance le dé d'initiative avant la bataille
+    showInitiativeOverlay(false);
   }, 1000);
 });
 
@@ -322,13 +437,11 @@ function showCombat() {
   const stat1 = el("dice-stat-1"), stat2 = el("dice-stat-2");
   const tot1  = el("dice-total-1"), tot2 = el("dice-total-2");
 
-  // Always colour each die by the player's actual colour (p1=blue, p2=red)
   face1.className = `dice-face p${res.attacker.player}`;
   face2.className = `dice-face p${res.defender.player}`;
 
-  const playerLabel = pid => pid === 1 ? "Joueur 1" : vsAI ? "IA" : "Joueur 2";
-  el("dice-p1-label").textContent = `${playerLabel(res.attacker.player)} — ${res.attacker.getName()}`;
-  el("dice-p2-label").textContent = `${playerLabel(res.defender.player)} — ${res.defender.getName()}`;
+  el("dice-p1-label").textContent = `${res.attacker.player === 1 ? "Joueur 1" : "IA"} — ${res.attacker.getName()}`;
+  el("dice-p2-label").textContent = `${res.defender.player === 1 ? "Joueur 1" : "IA"} — ${res.defender.getName()}`;
 
   info.textContent = res.ranged
     ? `${res.attacker.getName()} attaque à distance ${res.defender.getName()}${res.distPenalty ? ` (−${res.distPenalty} ATQ dist)` : ""}`
@@ -343,6 +456,7 @@ function showCombat() {
   stat2.textContent = `+ 🛡 DÉF: ${res.defenderDef}`;
 
   mod1.className = mod2.className = "dice-modifier";
+  mod1.textContent = mod2.textContent = "";
   if (res.aMod !== 0) {
     const mu = game.unitMods.get(res.attacker.id);
     mod1.textContent = res.aMod > 0 ? `${mu?.emoji ?? "⚡"} ATQ +${res.aMod} bonus` : `${mu?.emoji ?? "💀"} ATQ ${res.aMod} malédiction`;
@@ -399,12 +513,15 @@ function doRestart() {
   combatIdx   = 0;
   toggleOverlay("dice-overlay", false);
   toggleOverlay("win-overlay",  false);
+  initiativeOverlay.classList.remove("show");
+  exitModal.classList.remove("show");
   document.querySelectorAll(".unit-type-btn").forEach(b => b.classList.remove("active"));
   banner.classList.add("visible");
   playBtnDiv.classList.remove("hidden");
   moveBoard(0);
   toggleImgs(imgsBlue, false);
   toggleImgs(imgsRed,  false);
+  hideExitBtn();
   renderAll();
 }
 
