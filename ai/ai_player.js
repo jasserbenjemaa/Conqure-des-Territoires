@@ -41,7 +41,7 @@ class MinimaxEngine {
     // 🔄 Iterative Deepening avec cutoff temporel
     while (depth <= CONFIG.MAX_DEPTH) {
       const timeElapsed = performance.now() - this.startTime;
-      if (timeElapsed > CONFIG.TIME_LIMIT_MS * 0.8) break;
+      if (timeElapsed > CONFIG.TIME_LIMIT_MS ) break;
 
       const result = this._alphaBeta(depth, -Infinity, Infinity, true, this.pid);
 
@@ -55,7 +55,6 @@ class MinimaxEngine {
       depth++;
     }
 
-    console.log(`[AI-Hard] Depth:${depth - 1}, Nodes:${this.nodesEvaluated}, Time:${(performance.now() - this.startTime).toFixed(0)}ms`);
     return bestPlan;
   }
 
@@ -346,11 +345,6 @@ class MinimaxEngine {
     game.cellOwnership = new Map(snapshot.cellOwnership);
   }
 
-  /**
-   * Remplace calculateWinProbability() de base.js
-   * P(d6 + atk > d6 + def) — calcul exact
-   * @private
-   */
   _winProbability(atk, def) {
     let wins = 0;
     for (let a = 1; a <= 6; a++)
