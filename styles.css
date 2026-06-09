@@ -86,8 +86,8 @@ body {
 
 .play-btn-div {
     z-index: 1;
-    height: 100px;
-    width: 500px;
+    height: 10vh;
+    width: 10vw;
     display: flex;
     justify-content: space-between;
     position: absolute;
