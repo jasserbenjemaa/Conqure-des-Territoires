@@ -188,7 +188,7 @@ function onCellClick(r, c) {
     return;
   }
 
-  if (game.isBattling() && game.selectedUnit) {
+  if (game.isBattling() && game.selectedUnit) { //moch attack battling ya3ni bda tor7
     const result = game.tryMove(r, c);
     if (!result) return;
     if (result.kind === "combat") {
@@ -206,7 +206,7 @@ function onUnitClick(unit) {
   if (game.state === "OVER" || combatQueue.length || !game.isBattling()) return;
   if (vsAI && game.state === "BATTLE_2") return;
   if (unit.player === game.currentPlayerId()) {
-    if (game.selectedUnit && game.selectedUnit.id === unit.id) game.clearSel();
+    if (game.selectedUnit && game.selectedUnit.id === unit.id) game.clearSel();//toggle unit selection
     else game.selectUnit(unit);
     renderAll();
   }
@@ -436,8 +436,8 @@ function showCombat() {
   face1.className = `dice-face p${res.attacker.player}`;
   face2.className = `dice-face p${res.defender.player}`;
 
-  el("dice-p1-label").textContent = `${res.attacker.player === 1 ? "Joueur 1" : "IA"} — ${res.attacker.getName()}`;
-  el("dice-p2-label").textContent = `${res.defender.player === 1 ? "Joueur 1" : "IA"} — ${res.defender.getName()}`;
+  el("dice-p1-label").textContent = `${res.attacker.player === 1 ? "Joueur 1" : "Joueur 2"} — ${res.attacker.getName()}`;
+  el("dice-p2-label").textContent = `${res.defender.player === 1 ? "Joueur 1" : "Joueur 2"} — ${res.defender.getName()}`;
 
   info.textContent = res.ranged
     ? `${res.attacker.getName()} attaque à distance ${res.defender.getName()}${res.distPenalty ? ` (−${res.distPenalty} ATQ dist)` : ""}`
